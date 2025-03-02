@@ -26,7 +26,9 @@ class MailSearcherContext:
             auth = ImapAuth(email=email, password=password)
             imap_manager = ImapManager(auth)
             try:
-                await imap_manager.fetch_emails()  # Test login
+                login_success = await imap_manager.test_login()
+                if not login_success:
+                    raise Exception("Authentication failed")
             except Exception as e:
                 logging.error(f"IMAP login failed: {e}")
                 print(f"Error: IMAP login failed: {e}")
@@ -45,8 +47,8 @@ class MailSearcherContext:
         logging.info("Exiting MailSearcherContext")
         # No cleanup needed for in-memory resources
 
-    async def sync_emails(self):
-        """Sync emails from IMAP to vector database."""
+    async def sync_emails(self) -> None:
+        """Synchronize emails from IMAP server to vector store."""
         user = self.db_manager.get_user()
         user.state.sync_status = "syncing"
         self.db_manager.update_state(user.state)
@@ -54,20 +56,40 @@ class MailSearcherContext:
         try:
             emails = await self.imap_manager.fetch_emails()
             for email in emails:
-                processed_mails = self.mail_processor.process_mail(email)
-                texts = [pm.text for pm in processed_mails]
-                embeddings = self.embedding_manager.embed_texts(texts)
-                ids = [f"{email.uid}_{i}" for i in range(len(processed_mails))]
+                processed_mail = await self.mail_processor.process_mail(email)
+                
+                # Skip emails with no chunks
+                if not processed_mail.chunks:
+                    logging.warning(f"Email {processed_mail.mail_uid} has no chunks to process, skipping")
+                    continue
+                    
+                # Process all chunks for this email
+                embeddings = []
+                chunks = processed_mail.chunks
+                
+                # Generate embeddings for all chunks
+                for chunk in chunks:
+                    embedding = self.embedding_manager.embed_query(chunk)
+                    embeddings.append(embedding)
+                    
+                ids = [f"{processed_mail.mail_uid}_{i}" for i in range(len(chunks))]
                 metadatas = [{
-                    "mail_uid": email.uid,
+                    "mail_uid": processed_mail.mail_uid,
                     "chunk_index": i,
+                    "text": chunk,
                     "subject": email.subject,
                     "from": email.from_,
                     "to": email.to,
-                    "date": email.date,
-                    "text": pm.text
-                } for i, pm in enumerate(processed_mails)]
-                self.vector_db_manager.add_embeddings(embeddings, metadatas, ids)
+                    "date": email.date
+                } for i, chunk in enumerate(chunks)]
+                
+                # Add all embeddings at once
+                self.vector_db_manager.add_embeddings(
+                    embeddings=embeddings,
+                    metadatas=metadatas,
+                    ids=ids
+                )
+                
             user.state.last_sync_time = datetime.now().isoformat()
             user.state.sync_status = "idle"
             logging.info("Email sync completed")

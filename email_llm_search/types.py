@@ -31,7 +31,6 @@ class Mail:
 
 @dataclass
 class ProcessedMail:
-    """Processed email chunk ready for embedding."""
+    """Processed email containing chunks ready for embedding."""
     mail_uid: str
-    chunk_index: int
-    text: str
+    chunks: list[str]

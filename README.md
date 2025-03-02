@@ -7,6 +7,10 @@ A Python package for searching emails using LLM and vector embeddings.
 ```bash
 pip install -e .
 ```
+If torch cpu version not found, try:
+```bash
+pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+```
 
 ## Usage
 
