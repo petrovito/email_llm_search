@@ -7,7 +7,7 @@ import asyncio
 import logging
 import os
 import pathlib
-from .mail_searcher_context import MailSearcherContext
+from .mail_searcher import MailSearcher
 
 # Configure logging
 logging.basicConfig(
@@ -23,20 +23,26 @@ static_dir = os.path.join(current_dir, "static")
 app = FastAPI()
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-context = None
+mail_searcher = None
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the context on startup."""
-    global context
+    """Initialize the mail searcher on startup."""
+    global mail_searcher
     logging.info("Starting up application")
-    context = await MailSearcherContext().__aenter__()
+    mail_searcher = MailSearcher()
+    if not await mail_searcher.initialize():
+        logging.error("Failed to initialize MailSearcher")
+        exit(1)
+    
+    # Start the email syncing process (non-blocking)
+    await mail_searcher.start()
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
     logging.info("Shutting down application")
-    await context.__aexit__(None, None, None)
+    # No explicit cleanup needed
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
@@ -54,7 +60,7 @@ class SearchQuery(BaseModel):
 async def search(query: SearchQuery):
     """Search emails and return top results."""
     logging.info(f"Searching for query: {query.query}")
-    results = context.search(query.query, query.n_results)
+    results = mail_searcher.search(query.query, query.n_results)
     formatted_results = [
         {
             "id": results["ids"][0][i],
@@ -72,15 +78,19 @@ async def search(query: SearchQuery):
 @app.get("/state")
 async def get_state():
     """Return current state."""
-    state = context.get_state()
+    state = mail_searcher.get_state()
     return {"last_sync_time": state.last_sync_time, "sync_status": state.sync_status}
 
+class SyncRequest(BaseModel):
+    """Schema for sync request."""
+    max_emails: int = 10
+
 @app.post("/sync")
-async def sync(background_tasks: BackgroundTasks):
+async def sync(request: SyncRequest, background_tasks: BackgroundTasks):
     """Trigger email sync in the background."""
-    logging.info("Manual sync requested")
-    background_tasks.add_task(context.sync_emails)
-    return {"message": "Sync started in background"}
+    logging.info(f"Manual sync requested, max_emails={request.max_emails}")
+    background_tasks.add_task(mail_searcher.sync_emails, request.max_emails)
+    return {"message": f"Sync started in background, will process up to {request.max_emails} emails"}
 
 def run(host="0.0.0.0", port=8000):
     """Run the FastAPI application."""

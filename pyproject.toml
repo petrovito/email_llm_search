@@ -23,11 +23,16 @@ dependencies = [
     "chromadb",
     "fastapi",
     "uvicorn",
+    "trafilatura",
+    "beautifulsoup4",
+    "aioimaplib",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-asyncio",
 ]
 
 [project.scripts]
