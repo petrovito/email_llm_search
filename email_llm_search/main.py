@@ -8,6 +8,7 @@ import logging
 import os
 import pathlib
 from .mail_searcher import MailSearcher
+from .types import SearchResult
 
 # Configure logging
 logging.basicConfig(
@@ -61,18 +62,18 @@ async def search(query: SearchQuery):
     """Search emails and return top results."""
     logging.info(f"Searching for query: {query.query}")
     results = mail_searcher.search(query.query, query.n_results)
+    
+    # Convert SearchResult objects to dictionaries for JSON response
     formatted_results = [
         {
-            "id": results["ids"][0][i],
-            "subject": results["metadatas"][0][i]["subject"],
-            "from": results["metadatas"][0][i]["from"],
-            "to": results["metadatas"][0][i]["to"],
-            "date": results["metadatas"][0][i]["date"],
-            "text": results["metadatas"][0][i]["text"],
-            "distance": results["distances"][0][i]
+            "mail_uid": result.mail_uid,
+            "chunk_index": result.chunk_index,
+            "text": result.text,
+            "score": result.score
         }
-        for i in range(len(results["ids"][0]))
+        for result in results
     ]
+    
     return formatted_results
 
 @app.get("/state")
@@ -80,17 +81,6 @@ async def get_state():
     """Return current state."""
     state = mail_searcher.get_state()
     return {"last_sync_time": state.last_sync_time, "sync_status": state.sync_status}
-
-class SyncRequest(BaseModel):
-    """Schema for sync request."""
-    max_emails: int = 10
-
-@app.post("/sync")
-async def sync(request: SyncRequest, background_tasks: BackgroundTasks):
-    """Trigger email sync in the background."""
-    logging.info(f"Manual sync requested, max_emails={request.max_emails}")
-    background_tasks.add_task(mail_searcher.sync_emails, request.max_emails)
-    return {"message": f"Sync started in background, will process up to {request.max_emails} emails"}
 
 def run(host="0.0.0.0", port=8000):
     """Run the FastAPI application."""

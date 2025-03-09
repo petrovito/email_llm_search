@@ -34,3 +34,21 @@ class ProcessedMail:
     """Processed email containing chunks ready for embedding."""
     mail_uid: str
     chunks: list[str]
+
+@dataclass
+class SearchResult:
+    """Result from a vector search query."""
+    text: str
+    mail_uid: str
+    chunk_index: int
+    score: float
+    
+    @classmethod
+    def from_document(cls, doc, score: float):
+        """Create a SearchResult from a LangChain Document and score."""
+        return cls(
+            text=doc.page_content,
+            mail_uid=doc.metadata.get("mail_uid", ""),
+            chunk_index=doc.metadata.get("chunk_index", 0),
+            score=score
+        )
