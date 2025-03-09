@@ -1,5 +1,5 @@
 from .mailing_manager import MailingManager
-from .types import MailingStatus
+from .mails_types import MailingStatus
 from .mail_processor import MailProcessor
 from .imap_manager import ImapManager
 

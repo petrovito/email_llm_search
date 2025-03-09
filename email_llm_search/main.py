@@ -1,40 +1,55 @@
 import uvicorn
-from fastapi import FastAPI, BackgroundTasks
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from fastapi import FastAPI
 import asyncio
 import logging
 import os
 import pathlib
+import sys
 from .mail_searcher import MailSearcher
-from .types import SearchResult
+from .controllers import RestController
 
-# Configure logging
-logging.basicConfig(
-    filename="app.log",
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+# Configure logging to output to both file and console
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# # File handler
+# file_handler = logging.FileHandler("app.log")
+# file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+# logger.addHandler(file_handler)
+
+# Console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+logger.addHandler(console_handler)
+
+# Configure uvicorn logging
+for uvicorn_logger_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
+    uvicorn_logger = logging.getLogger(uvicorn_logger_name)
+    uvicorn_logger.handlers = []  # Remove default handlers
+    uvicorn_logger.propagate = True  # Propagate to root logger
 
 # Get the directory of the current file
 current_dir = pathlib.Path(__file__).parent.parent
 static_dir = os.path.join(current_dir, "static")
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
-
 mail_searcher = None
+rest_controller = None
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the mail searcher on startup."""
-    global mail_searcher
+    """Initialize the mail searcher and controller on startup."""
+    global mail_searcher, rest_controller
     logging.info("Starting up application")
+    
+    # Initialize mail searcher
     mail_searcher = MailSearcher()
     if not await mail_searcher.initialize():
         logging.error("Failed to initialize MailSearcher")
         exit(1)
+    
+    # Initialize REST controller
+    rest_controller = RestController(app, mail_searcher, static_dir)
     
     # Start the email syncing process (non-blocking)
     await mail_searcher.start()
@@ -45,46 +60,16 @@ async def shutdown_event():
     logging.info("Shutting down application")
     # No explicit cleanup needed
 
-@app.get("/", response_class=HTMLResponse)
-async def read_root():
-    """Serve the UI."""
-    html_file = os.path.join(static_dir, "index.html")
-    with open(html_file, "r") as f:
-        return f.read()
-
-class SearchQuery(BaseModel):
-    """Schema for search query."""
-    query: str
-    n_results: int = 5
-
-@app.post("/search")
-async def search(query: SearchQuery):
-    """Search emails and return top results."""
-    logging.info(f"Searching for query: {query.query}")
-    results = mail_searcher.search(query.query, query.n_results)
-    
-    # Convert SearchResult objects to dictionaries for JSON response
-    formatted_results = [
-        {
-            "mail_uid": result.mail_uid,
-            "chunk_index": result.chunk_index,
-            "text": result.text,
-            "score": result.score
-        }
-        for result in results
-    ]
-    
-    return formatted_results
-
-@app.get("/state")
-async def get_state():
-    """Return current state."""
-    state = mail_searcher.get_state()
-    return {"last_sync_time": state.last_sync_time, "sync_status": state.sync_status}
-
 def run(host="0.0.0.0", port=8000):
     """Run the FastAPI application."""
-    uvicorn.run(app, host=host, port=port)
+    # Configure Uvicorn to use our logging settings
+    uvicorn.run(
+        app, 
+        host=host, 
+        port=port,
+        log_config=None,  # Disable Uvicorn's default logging config
+        log_level="info"
+    )
 
 if __name__ == "__main__":
     run()

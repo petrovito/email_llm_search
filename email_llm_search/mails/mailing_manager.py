@@ -3,7 +3,7 @@ from typing import List, Optional, Set
 from datetime import datetime
 from .imap_manager import ImapManager
 from .mail_processor import MailProcessor
-from .types import MailingStatus
+from .mails_types import MailingStatus
 from ..types import Mail, ImapAuth, ProcessedMail
 
 class MailingManager:
